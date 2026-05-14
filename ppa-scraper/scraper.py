@@ -2,6 +2,45 @@ from playwright.sync_api import sync_playwright
 import re
 
 
+def scrape_ppa_article(url: str) -> dict:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("h1", timeout=30000)
+
+            result = {}
+
+            el = page.query_selector("h1")
+            result["title"] = el.inner_text().strip() if el else None
+
+            try:
+                page.wait_for_selector(".pp-article-content", timeout=15000)
+            except Exception:
+                pass
+
+            content_el = page.query_selector(".pp-article-content")
+            result["content"] = content_el.inner_text().strip() if content_el else None
+
+            links = []
+            if content_el:
+                for a in content_el.query_selector_all("a"):
+                    href = a.get_attribute("href") or ""
+                    text = a.inner_text().strip()
+                    if href and text:
+                        links.append({"text": text, "url": href})
+            result["links"] = links
+
+            body = page.inner_text("body")
+            m = re.search(r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2})", body)
+            result["publish_date"] = m.group(1) if m else None
+
+            return result
+        finally:
+            browser.close()
+
+
 def scrape_ppa_course(url: str) -> dict:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)

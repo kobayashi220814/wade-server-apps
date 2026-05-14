@@ -1,12 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
-from scraper import scrape_ppa_course
+from scraper import scrape_ppa_course, scrape_ppa_article
 
 app = FastAPI(
-    title="PPA Course Scraper API",
-    description="爬取 PressPlay Academy 課程頁面的 14 個核心區塊",
-    version="1.0.0",
+    title="PPA Scraper API",
+    description="爬取 PressPlay Academy 課程頁（14 區塊）或文章頁（標題、內文、連結）",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -29,13 +29,16 @@ def health():
 @app.post("/api/scrape")
 def scrape(req: ScrapeRequest):
     """
-    爬取 PressPlay Academy 課程頁面。
+    自動判斷 PPA 頁面類型並爬取：
 
-    輸入 `url`（課程 about 頁面），回傳 14 個區塊：
-    課程名稱、評價、學習人數、課程總覽、你可以學到、誰適合學習、
-    價錢、介紹圖片、目錄、講師名稱、講師介紹、開課單位、相關分類。
+    - URL 含 `/articles/` → 文章頁：回傳 title、content、links、publish_date
+    - URL 含 `/about` → 課程頁：回傳 14 個區塊
     """
+    url = str(req.url)
     try:
-        return scrape_ppa_course(str(req.url))
+        if "/articles/" in url:
+            return scrape_ppa_article(url)
+        else:
+            return scrape_ppa_course(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
