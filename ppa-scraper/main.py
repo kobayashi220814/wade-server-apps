@@ -6,7 +6,7 @@ from scraper import scrape_ppa_course, scrape_ppa_article
 app = FastAPI(
     title="PPA Scraper API",
     description="爬取 PressPlay Academy 課程頁（14 區塊）或文章頁（標題、內文、連結）",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -26,19 +26,35 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/scrape")
-def scrape(req: ScrapeRequest):
+@app.post("/api/scrape/course")
+def scrape_course(req: ScrapeRequest):
     """
-    自動判斷 PPA 頁面類型並爬取：
-
-    - URL 含 `/articles/` → 文章頁：回傳 title、content、links、publish_date
-    - URL 含 `/about` → 課程頁：回傳 14 個區塊
+    爬取 PPA 課程頁（URL 必須含 `/about`），回傳 14 個區塊。
     """
     url = str(req.url)
+    if "/about" not in url:
+        raise HTTPException(
+            status_code=400,
+            detail="URL 不符合課程頁格式，應包含 /about（例如 .../project/xxx/about）",
+        )
     try:
-        if "/articles/" in url:
-            return scrape_ppa_article(url)
-        else:
-            return scrape_ppa_course(url)
+        return scrape_ppa_course(url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scrape/article")
+def scrape_article(req: ScrapeRequest):
+    """
+    爬取 PPA 文章頁（URL 必須含 `/articles/`），回傳 title、content、links、publish_date。
+    """
+    url = str(req.url)
+    if "/articles/" not in url:
+        raise HTTPException(
+            status_code=400,
+            detail="URL 不符合文章頁格式，應包含 /articles/（例如 .../articles/xxx）",
+        )
+    try:
+        return scrape_ppa_article(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
