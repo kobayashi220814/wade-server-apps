@@ -6,7 +6,9 @@ def scrape_ppa_course(url: str) -> dict:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto(url, wait_until="networkidle", timeout=30000)
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        # 等 h1 出現代表頁面主要內容已渲染
+        page.wait_for_selector("h1", timeout=30000)
 
         result = {}
 
