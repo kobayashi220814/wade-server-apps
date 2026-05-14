@@ -74,31 +74,37 @@ def scrape_ppa_course(url: str) -> dict:
             except StopIteration:
                 result["overview"] = None
 
-            # 5. 你可以學到（只取 ★ 開頭的標題行）
-            try:
-                idx = next(i for i, l in enumerate(lines) if "你可以學到" in l)
-                items = []
-                for l in lines[idx + 1 :]:
-                    if "誰適合學習" in l:
-                        break
-                    if l.startswith("★"):
-                        items.append(l.replace("\xa0", " ").strip())
-                result["what_you_learn"] = items
-            except StopIteration:
-                result["what_you_learn"] = []
+            # 5. 你可以學到（完整內容含說明文字）
+            page.evaluate(
+                'var el = document.querySelector("#about-section-summary_learning"); '
+                'if(el) el.scrollIntoView();'
+            )
+            page.wait_for_timeout(800)
+            el = page.query_selector(
+                "#about-section-summary_learning > div > div.about-section-content > "
+                "div > div > div.expand-section > div > div"
+            )
+            if not el:
+                el = page.query_selector("#about-section-summary_learning")
+            result["what_you_learn"] = (
+                el.text_content().strip().replace("\xa0", " ") if el else None
+            )
 
-            # 6. 誰適合學習（只取標題行，略過說明文字）
-            try:
-                idx = next(i for i, l in enumerate(lines) if "誰適合學習" in l)
-                audiences = []
-                for l in lines[idx + 1 :]:
-                    if re.match(r"\d+\.\d+\s*評價|顯示所有評價", l):
-                        break
-                    if len(l) <= 15:
-                        audiences.append(l)
-                result["target_audience"] = audiences
-            except StopIteration:
-                result["target_audience"] = []
+            # 6. 誰適合學習（完整內容含說明文字）
+            page.evaluate(
+                'var el = document.querySelector("#about-section-summary_suitable_for"); '
+                'if(el) el.scrollIntoView();'
+            )
+            page.wait_for_timeout(800)
+            el = page.query_selector(
+                "#about-section-summary_suitable_for > div > div.about-section-content > "
+                "div > div > div.expand-section > div"
+            )
+            if not el:
+                el = page.query_selector("#about-section-summary_suitable_for")
+            result["target_audience"] = (
+                el.text_content().strip().replace("\xa0", " ") if el else None
+            )
 
             # 7. 價錢
             el = page.query_selector(
@@ -157,7 +163,7 @@ def scrape_ppa_course(url: str) -> dict:
                     if l in ("選購方案", "免費試看", "免費加值"):
                         break
                     curriculum.append(l)
-            result["curriculum"] = curriculum
+            result["curriculum"] = "\n".join(curriculum)
 
             # 10 & 11. 講師名稱 & 介紹（lazy load，需捲動）
             page.evaluate(
@@ -180,16 +186,30 @@ def scrape_ppa_course(url: str) -> dict:
                 )
             ]
 
-            # 12 & 13. 開課單位名稱 & 介紹
+            # 12 & 13. 開課單位名稱 & 介紹（lazy load，需捲動）
+            page.evaluate(
+                'var el = document.querySelector("#about-section-groups"); '
+                'if(el) el.scrollIntoView();'
+            )
             try:
-                idx = next(i for i, l in enumerate(lines2) if l == "開課單位")
-                result["organizer_name"] = lines2[idx + 1] if idx + 1 < len(lines2) else None
-                result["organizer_description"] = (
-                    lines2[idx + 2] if idx + 2 < len(lines2) else None
+                page.wait_for_selector(
+                    "#about-section-groups .group-card-container h3", timeout=8000
                 )
-            except StopIteration:
-                result["organizer_name"] = None
-                result["organizer_description"] = None
+            except Exception:
+                pass
+
+            el = page.query_selector(
+                "#about-section-groups > div > div.about-section-content > div > div > "
+                "div > div > div.group-card > div.group-card-container > h3"
+            )
+            result["organizer_name"] = el.inner_text().strip() if el else None
+
+            el = page.query_selector(
+                "#about-section-groups > div > div.about-section-content > div > div > "
+                "div > div > div.group-card > div.group-card-container > "
+                "div.group-card-desc > div"
+            )
+            result["organizer_description"] = el.inner_text().strip() if el else None
 
             # 14. 相關分類
             try:
