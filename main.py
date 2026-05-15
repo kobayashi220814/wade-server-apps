@@ -1,7 +1,10 @@
+import threading
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from scraper import scrape_ppa_course, scrape_ppa_article
+
+_scrape_semaphore = threading.Semaphore(2)
 
 app = FastAPI(
     title="PPA Scraper API",
@@ -58,7 +61,8 @@ def scrape_course(req: ScrapeRequest):
             detail=f"無效的欄位：{invalid}。可用欄位：{ALL_COURSE_FIELDS}",
         )
     try:
-        return scrape_ppa_course(url, fields)
+        with _scrape_semaphore:
+            return scrape_ppa_course(url, fields)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -75,6 +79,7 @@ def scrape_article(req: ScrapeRequest):
             detail="URL 不符合文章頁格式，應包含 /articles/（例如 .../articles/xxx）",
         )
     try:
-        return scrape_ppa_article(url)
+        with _scrape_semaphore:
+            return scrape_ppa_article(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
