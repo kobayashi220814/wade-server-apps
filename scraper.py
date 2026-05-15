@@ -8,7 +8,7 @@ def scrape_ppa_article(url: str) -> dict:
         try:
             page = browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("h1", timeout=30000)
+            page.wait_for_selector("h1", timeout=90000)
 
             result = {}
 
@@ -49,7 +49,7 @@ def scrape_ppa_course(url: str, fields: list) -> dict:
         try:
             page = browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("h1", timeout=30000)
+            page.wait_for_selector("h1", timeout=90000)
 
             result = {}
 
