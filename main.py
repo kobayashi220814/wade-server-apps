@@ -4,7 +4,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from scraper import scrape_ppa_course, scrape_ppa_article
 
-_scrape_semaphore = threading.Semaphore(2)
+_scrape_semaphore = threading.Semaphore(3)
+
+def _acquire_or_busy():
+    if not _scrape_semaphore.acquire(blocking=False):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Server is busy — all scraping slots are occupied. "
+                "Please retry after 15–30 seconds."
+            ),
+            headers={"Retry-After": "20"},
+        )
 
 app = FastAPI(
     title="PPA Scraper API",
@@ -60,11 +71,13 @@ def scrape_course(req: ScrapeRequest):
             status_code=400,
             detail=f"無效的欄位：{invalid}。可用欄位：{ALL_COURSE_FIELDS}",
         )
+    _acquire_or_busy()
     try:
-        with _scrape_semaphore:
-            return scrape_ppa_course(url, fields)
+        return scrape_ppa_course(url, fields)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _scrape_semaphore.release()
 
 
 @app.post("/api/scrape/article")
@@ -78,8 +91,10 @@ def scrape_article(req: ScrapeRequest):
             status_code=400,
             detail="URL 不符合文章頁格式，應包含 /articles/（例如 .../articles/xxx）",
         )
+    _acquire_or_busy()
     try:
-        with _scrape_semaphore:
-            return scrape_ppa_article(url)
+        return scrape_ppa_article(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _scrape_semaphore.release()
