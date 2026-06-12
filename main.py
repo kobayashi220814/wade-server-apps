@@ -5,6 +5,8 @@ from pydantic import BaseModel, HttpUrl
 from scraper import scrape_ppa_course, scrape_ppa_article
 
 _scrape_semaphore = threading.Semaphore(3)
+# OCR 是 CPU 密集（舊筆電），序列化避免互相拖垮
+_ocr_semaphore = threading.Semaphore(1)
 
 def _acquire_or_busy():
     if not _scrape_semaphore.acquire(blocking=False):
@@ -44,6 +46,14 @@ class ScrapeRequest(BaseModel):
     fields: list[str] | None = None
 
 
+class OcrCourseRequest(BaseModel):
+    url: HttpUrl
+
+
+class OcrImagesRequest(BaseModel):
+    urls: list[HttpUrl]
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -78,6 +88,54 @@ def scrape_course(req: ScrapeRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         _scrape_semaphore.release()
+
+
+@app.post("/api/ocr/course")
+def ocr_course(req: OcrCourseRequest):
+    """
+    給課程頁 URL（須含 `/about`），自動爬取介紹區圖片並做 OCR。
+    回傳 {"images": [{"url": ..., "text": ...}]}，text 已簡轉繁（台灣用語）。
+    """
+    from ocr import ocr_image_urls
+
+    url = str(req.url)
+    if "/about" not in url:
+        raise HTTPException(
+            status_code=400,
+            detail="URL 不符合課程頁格式，應包含 /about（例如 .../project/xxx/about）",
+        )
+    _acquire_or_busy()
+    try:
+        scraped = scrape_ppa_course(url, ["images"])
+        image_urls = scraped.get("images", [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"爬取圖片失敗：{e}")
+    finally:
+        _scrape_semaphore.release()
+
+    with _ocr_semaphore:
+        try:
+            results = ocr_image_urls(image_urls)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"OCR 失敗：{e}")
+    return {"count": len(results), "images": results}
+
+
+@app.post("/api/ocr/images")
+def ocr_images(req: OcrImagesRequest):
+    """
+    直接對一組圖片 URL 做 OCR（不經爬蟲）。
+    回傳 {"images": [{"url": ..., "text": ...}]}，text 已簡轉繁（台灣用語）。
+    """
+    from ocr import ocr_image_urls
+
+    urls = [str(u) for u in req.urls]
+    with _ocr_semaphore:
+        try:
+            results = ocr_image_urls(urls)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"OCR 失敗：{e}")
+    return {"count": len(results), "images": results}
 
 
 @app.post("/api/scrape/article")

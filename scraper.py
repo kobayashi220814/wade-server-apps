@@ -129,16 +129,18 @@ def scrape_ppa_course(url: str, fields: list) -> dict:
                         btn.click()
                         page.wait_for_timeout(1500)
                         break
-                imgs = page.query_selector_all("img")
+                # 介紹區圖片放在 .pp-lightbox 的 data-src，頁面一渲染就有值，
+                # 不受 lazy-load（src 在滾動前是空的）影響，也能避開下方輪播的重複圖。
+                boxes = page.query_selector_all('.pp-lightbox[data-group="Pictures"]')
                 img_srcs = []
                 seen = set()
-                for img in imgs:
-                    src = img.get_attribute("src") or ""
+                for box in boxes:
+                    src = box.get_attribute("data-src") or ""
                     if (
                         src
                         and src not in seen
                         and "static.pressplay.cc" in src
-                        and re.search(r"\.(jpg|jpeg|png|webp)", src, re.I)
+                        and re.search(r"\.(jpg|jpeg|png|webp|gif)", src, re.I)
                     ):
                         img_srcs.append(src)
                         seen.add(src)
