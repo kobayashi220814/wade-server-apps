@@ -26,6 +26,8 @@ def scrape_ppa_article(url: str) -> dict:
             if html:
                 raw_md = md(html, heading_style="ATX", bullets="-").strip()
                 raw_md = '\n'.join(ln.rstrip() for ln in raw_md.split('\n'))
+                # 移出粗體結尾的全形標點，避免 CommonMark 強調規則導致 ** 無法渲染
+                raw_md = re.sub(r"\*\*([^*\n]+?)([：，、。！？；])\*\*", r"**\1**\2", raw_md)
                 result["content"] = re.sub(r"\n{3,}", "\n\n", raw_md)
             else:
                 result["content"] = None
