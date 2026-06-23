@@ -1,4 +1,5 @@
 from playwright.sync_api import sync_playwright
+from markdownify import markdownify as md
 import re
 
 
@@ -21,7 +22,8 @@ def scrape_ppa_article(url: str) -> dict:
                 pass
 
             content_el = page.query_selector(".pp-article-content")
-            result["content"] = content_el.inner_text().strip() if content_el else None
+            html = content_el.inner_html() if content_el else None
+            result["content"] = md(html, heading_style="ATX", bullets="-").strip() if html else None
 
             links = []
             if content_el:

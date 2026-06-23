@@ -6,3 +6,4 @@ onnxruntime==1.26.0
 opencv-python-headless==4.13.0.92
 opencc==1.1.9
 numpy
+markdownify==0.14.4
