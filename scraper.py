@@ -25,6 +25,7 @@ def scrape_ppa_article(url: str) -> dict:
             html = content_el.inner_html() if content_el else None
             if html:
                 raw_md = md(html, heading_style="ATX", bullets="-").strip()
+                raw_md = '\n'.join(ln.rstrip() for ln in raw_md.split('\n'))
                 result["content"] = re.sub(r"\n{3,}", "\n\n", raw_md)
             else:
                 result["content"] = None
