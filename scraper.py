@@ -23,7 +23,11 @@ def scrape_ppa_article(url: str) -> dict:
 
             content_el = page.query_selector(".pp-article-content")
             html = content_el.inner_html() if content_el else None
-            result["content"] = md(html, heading_style="ATX", bullets="-").strip() if html else None
+            if html:
+                raw_md = md(html, heading_style="ATX", bullets="-").strip()
+                result["content"] = re.sub(r"\n{3,}", "\n\n", raw_md)
+            else:
+                result["content"] = None
 
             links = []
             if content_el:
@@ -41,8 +45,6 @@ def scrape_ppa_article(url: str) -> dict:
             return result
         finally:
             browser.close()
-
-
 def scrape_ppa_course(url: str, fields: list) -> dict:
     need = set(fields)
 
@@ -251,3 +253,4 @@ def scrape_ppa_course(url: str, fields: list) -> dict:
 
         finally:
             browser.close()
+
