@@ -153,39 +153,56 @@ def scrape_ppa_course(url: str, fields: list) -> dict:
                         seen.add(src)
                 result["images"] = img_srcs
 
-            # 9. 目錄 / 14. 相關分類（需點課程目錄 tab）
-            need_curriculum_tab = need & {"curriculum", "categories"}
-            lines2 = lines
-            if need_curriculum_tab:
-                tab = page.query_selector('[data-tab-id="public_articles"]')
-                if tab:
-                    tab.click()
-                    page.wait_for_timeout(2000)
-
-                for el in page.query_selector_all("*"):
-                    try:
-                        t = el.inner_text().strip()
-                        if "顯示全部章節" in t and len(t) < 30:
-                            el.click()
-                            page.wait_for_timeout(1500)
-                            break
-                    except Exception:
-                        pass
-
-                body2 = page.inner_text("body")
-                lines2 = [l.strip() for l in body2.split("\n") if l.strip()]
-
+            # 9. 目錄（curriculum）— about 頁內嵌的「目錄與試看」區塊
+            #    章節格式各課不一（章節一／第一章／第一章節／引言／Lesson…），
+            #    直接抓區塊文字最穩，不靠格式 regex。
             if "curriculum" in need:
-                curriculum = []
-                in_curriculum = False
-                for l in lines2:
-                    if re.match(r"Lesson[\.\s]\d+.+\(\d+\)|Bonus\s+解鎖章節", l):
-                        in_curriculum = True
-                    if in_curriculum:
-                        if l in ("選購方案", "免費試看", "免費加值"):
+                curriculum = ""
+                page.evaluate(
+                    'var el = document.querySelector("#about-section-public_articles"); '
+                    'if(el) el.scrollIntoView();'
+                )
+                page.wait_for_timeout(600)
+                sec = page.query_selector("#about-section-public_articles")
+                if sec:
+                    # 展開「顯示全部章節 (N)」，可能需點多次。
+                    # 注意：click handler 綁在內層 .pp-button-secondary，
+                    # 點外層 .expand-section-button 不會觸發。
+                    for _ in range(6):
+                        target = None
+                        for b in sec.query_selector_all(
+                            ".expand-section-button .pp-button-secondary"
+                        ):
+                            try:
+                                if "顯示全部章節" in b.inner_text():
+                                    target = b
+                                    break
+                            except Exception:
+                                pass
+                        if not target:
                             break
-                        curriculum.append(l)
-                result["curriculum"] = "\n".join(curriculum)
+                        try:
+                            target.evaluate("el => el.click()")
+                            page.wait_for_timeout(700)
+                        except Exception:
+                            break
+                    # 章節內容放在各 .book-info 區塊；上方可能有「全部內容」試看輪播
+                    # （.section-block swiper），只取 .book-info 可避免預覽字幕混入。
+                    blocks = sec.query_selector_all(".book-info")
+                    if blocks:
+                        raw = "\n".join(b.inner_text() for b in blocks).strip()
+                    else:
+                        raw = sec.inner_text().strip()
+                    skip = {"免費試看", "免費加值", "試看", "免費", "全部內容", "目錄與試看"}
+                    lines_c = [
+                        l.strip()
+                        for l in raw.split("\n")
+                        if l.strip()
+                        and not l.strip().startswith("顯示全部章節")
+                        and l.strip() not in skip
+                    ]
+                    curriculum = "\n".join(lines_c)
+                result["curriculum"] = curriculum
 
             # 10 & 11. 講師名稱 & 介紹（lazy load，需捲動）
             if need & {"instructor_names", "instructor_descriptions"}:
@@ -239,18 +256,22 @@ def scrape_ppa_course(url: str, fields: list) -> dict:
                     )
                     result["organizer_description"] = el.inner_text().strip() if el else None
 
-            # 14. 相關分類
+            # 14. 相關分類（#about-section-category 區塊，需捲動觸發 lazy load）
             if "categories" in need:
-                try:
-                    idx = next(i for i, l in enumerate(lines2) if l == "相關分類")
-                    categories = []
-                    for l in lines2[idx + 1 :]:
-                        if l == "首頁":
-                            break
-                        categories.append(l)
-                    result["categories"] = categories
-                except StopIteration:
-                    result["categories"] = []
+                page.evaluate(
+                    'var el = document.querySelector("#about-section-category"); '
+                    'if(el) el.scrollIntoView();'
+                )
+                page.wait_for_timeout(500)
+                categories = []
+                sec = page.query_selector("#about-section-category")
+                if sec:
+                    content = sec.query_selector(".about-section-content") or sec
+                    for l in content.inner_text().split("\n"):
+                        l = l.strip()
+                        if l and l != "相關分類":
+                            categories.append(l)
+                result["categories"] = categories
 
             return result
 
