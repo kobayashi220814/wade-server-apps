@@ -96,7 +96,7 @@ router.post('/api/explain', async (req, res) => {
   const title = clip(b.title, 200);
   const head = clip(b.head, 200);
   const para = clip(b.para, 4000);
-  const url = clip(b.url, 500);
+  const url = clip(b.url, 500) || null;
   if (!term) return res.status(400).json({ error: '缺少要解釋的文字' });
 
   const sys =
@@ -185,7 +185,9 @@ router.get('/api/_admin/log', async (req, res) => {
        FROM explain_log`
     );
     const rows = await pool.query(
-      `SELECT id, created_at, url, day, title, term, section,
+      `SELECT id,
+              to_char(created_at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+              url, day, title, term, section,
               context, answer, model, feedback
        FROM explain_log ORDER BY id DESC LIMIT $1`,
       [limit]
@@ -207,6 +209,19 @@ router.post('/api/_admin/reset', async (req, res) => {
   try {
     await pool.query('TRUNCATE explain_log RESTART IDENTITY');
     return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// 只刪測試標記列（term 以 ZZTEST 開頭），供驗證後清理，不動真實資料
+router.post('/api/_admin/purge_tests', async (req, res) => {
+  const tok = process.env.ADMIN_TOKEN;
+  if (!tok || (req.body && req.body.token) !== tok) return res.status(404).send('Not found');
+  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
+  try {
+    const r = await pool.query("DELETE FROM explain_log WHERE term LIKE 'ZZTEST%'");
+    return res.json({ ok: true, deleted: r.rowCount });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }
