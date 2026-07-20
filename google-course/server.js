@@ -5,7 +5,8 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE = '/google-course';
+// 對外路徑是 /google-course，但 Coolify 的 Traefik 會 StripPrefix 掉這段，
+// 容器內部實際收到的是根路徑，所以 app 一律掛在 '/'。
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
 
@@ -98,13 +99,13 @@ router.post('/api/explain', async (req, res) => {
   }
 });
 
-app.use(BASE, router);
+app.use('/', router);
 
-// 靜態資源（圖片等，如果有的話）掛在 BASE 底下
-app.use(BASE, express.static(PUBLIC));
+// 靜態資源（圖片等，如果有的話）
+app.use('/', express.static(PUBLIC));
 
 app.get('/health', (req, res) => res.send('ok'));
 
 app.listen(PORT, () => {
-  console.log('google-course listening on ' + PORT + ', base ' + BASE);
+  console.log('google-course listening on ' + PORT);
 });
