@@ -1,0 +1,16 @@
+{
+  "name": "google-course",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Google 5-Day AI Agents 白皮書中文版電子書，含名詞解釋後端代理",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
