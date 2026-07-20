@@ -181,8 +181,8 @@ router.get('/api/_admin/log', async (req, res) => {
        FROM explain_log`
     );
     const rows = await pool.query(
-      `SELECT id, created_at, day, term, section,
-              length(context) AS ctx_len, length(answer) AS ans_len, feedback
+      `SELECT id, created_at, day, title, term, section,
+              context, answer, model, feedback
        FROM explain_log ORDER BY id DESC LIMIT $1`,
       [limit]
     );
