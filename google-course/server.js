@@ -2,6 +2,7 @@
 
 const express = require('express');
 const path = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,35 @@ app.use(express.json({ limit: '32kb' }));
 
 // 讓 Traefik / Cloudflare 後面拿得到真實 client IP
 app.set('trust proxy', true);
+
+// ---- Postgres（記錄查詢與回饋，best-effort，連不上也不影響頁面）----
+let pool = null;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: false, max: 4 });
+  pool.on('error', (e) => console.error('[pg] pool error:', e.message));
+  (async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS explain_log (
+          id BIGSERIAL PRIMARY KEY,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          day TEXT,
+          title TEXT,
+          section TEXT,
+          term TEXT,
+          context TEXT,
+          answer TEXT,
+          model TEXT,
+          feedback TEXT
+        )`);
+      console.log('[pg] explain_log 就緒');
+    } catch (e) {
+      console.error('[pg] 建表失敗，將以無資料庫模式運作:', e.message);
+    }
+  })();
+} else {
+  console.log('[pg] 未設定 DATABASE_URL，略過資料庫記錄');
+}
 
 const PUBLIC = path.join(__dirname, 'public');
 const router = express.Router();
@@ -31,9 +61,9 @@ router.get('/', (req, res) => {
   res.sendFile(path.join(PUBLIC, 'index.html'));
 });
 
-// 名詞解釋後端代理：金鑰只留在伺服器，瀏覽器看不到
+// ---- 簡易 IP 限流 ----
 const WINDOW_MS = 60 * 1000;
-const MAX_PER_WINDOW = 20;
+const MAX_PER_WINDOW = 30;
 const hits = new Map();
 
 function rateLimited(ip) {
@@ -47,6 +77,7 @@ function rateLimited(ip) {
   return arr.length > MAX_PER_WINDOW;
 }
 
+// 名詞解釋後端代理：金鑰只留在伺服器，瀏覽器看不到
 router.post('/api/explain', async (req, res) => {
   if (!OPENAI_KEY) {
     return res.status(500).json({ error: '伺服器未設定 OPENAI_API_KEY' });
@@ -93,9 +124,44 @@ router.post('/api/explain', async (req, res) => {
     }
     const j = await r.json();
     const answer = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || '').trim();
-    return res.json({ answer, model: MODEL });
+
+    // 寫入資料庫（best-effort），成功則回傳 id 供回饋回寫
+    let id = null;
+    if (pool) {
+      try {
+        const day = (title.match(/Day\s*([1-5])/) || [])[1] || null;
+        const ins = await pool.query(
+          'INSERT INTO explain_log(day,title,section,term,context,answer,model) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+          [day, title, head, term, para, answer, MODEL]
+        );
+        id = ins.rows[0].id;
+      } catch (e) {
+        console.error('[pg] insert 失敗:', e.message);
+      }
+    }
+    return res.json({ answer, model: MODEL, id });
   } catch (err) {
     return res.status(502).json({ error: '呼叫 OpenAI 失敗', detail: String(err).slice(0, 220) });
+  }
+});
+
+// 回饋回寫：up / down
+router.post('/api/feedback', async (req, res) => {
+  if (!pool) return res.json({ ok: false });
+  const ip = req.ip || 'unknown';
+  if (rateLimited(ip)) return res.status(429).json({ ok: false });
+  const b = req.body || {};
+  const id = b.id;
+  const value = b.value;
+  if (!id || (value !== 'up' && value !== 'down')) {
+    return res.status(400).json({ error: '參數錯誤' });
+  }
+  try {
+    await pool.query('UPDATE explain_log SET feedback=$1 WHERE id=$2', [value, String(id)]);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[pg] feedback 失敗:', e.message);
+    return res.status(500).json({ ok: false });
   }
 });
 

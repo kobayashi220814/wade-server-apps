@@ -735,6 +735,7 @@ clusters = KMeans(n_clusters=8).fit(vectors)
         shell('<div class="ex-body">查詢失敗（HTTP '+res.status+'）\n'+esc(t.slice(0,220))+'</div>',cur.term); return; }
       var j=await res.json();
       var ans=clean((j.answer||'').trim());
+      var serverId=(j.id!=null)?j.id:null;
       var idx=addLog({time:new Date().toISOString(),doc:c.title,section:c.head,
                       term:cur.term,context:c.para,answer:ans,model:MODEL,feedback:null});
       var TH='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '+
@@ -753,6 +754,9 @@ clusters = KMeans(n_clusters=8).fit(vectors)
         dn.classList.toggle('on-down',v==='down');
         up.setAttribute('aria-pressed',v==='up'); dn.setAttribute('aria-pressed',v==='down');
         setFeedback(idx,v);
+        if(serverId!=null){ try{ fetch('/google-course/api/feedback',{method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({id:serverId,value:v})}); }catch(e){} }
         var q=card.querySelector('.ex-q');
         if(q) q.innerHTML='<span class="ex-thanks">感謝你的回饋</span>';
       }
