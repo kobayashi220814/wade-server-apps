@@ -846,7 +846,7 @@ args.update(resolved_args)</code></pre>
       var res=await fetch('/google-course/api/explain',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({title:c.title,head:c.head,para:c.para,term:cur.term})
+        body:JSON.stringify({url:location.href,title:c.title,head:c.head,para:c.para,term:cur.term})
       });
       if(!res.ok){ var t=await res.text();
         shell('<div class="ex-body">查詢失敗（HTTP '+res.status+'）\n'+esc(t.slice(0,220))+'</div>',cur.term); return; }

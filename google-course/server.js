@@ -28,6 +28,7 @@ if (process.env.DATABASE_URL) {
         CREATE TABLE IF NOT EXISTS explain_log (
           id BIGSERIAL PRIMARY KEY,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          url TEXT,
           day TEXT,
           title TEXT,
           section TEXT,
@@ -37,6 +38,8 @@ if (process.env.DATABASE_URL) {
           model TEXT,
           feedback TEXT
         )`);
+      // 舊表補欄位（新表已含，這行對舊表才有作用）
+      await pool.query('ALTER TABLE explain_log ADD COLUMN IF NOT EXISTS url TEXT');
       console.log('[pg] explain_log 就緒');
     } catch (e) {
       console.error('[pg] 建表失敗，將以無資料庫模式運作:', e.message);
@@ -93,6 +96,7 @@ router.post('/api/explain', async (req, res) => {
   const title = clip(b.title, 200);
   const head = clip(b.head, 200);
   const para = clip(b.para, 4000);
+  const url = clip(b.url, 500);
   if (!term) return res.status(400).json({ error: '缺少要解釋的文字' });
 
   const sys =
@@ -131,8 +135,8 @@ router.post('/api/explain', async (req, res) => {
       try {
         const day = (title.match(/Day\s*([1-5])/) || [])[1] || null;
         const ins = await pool.query(
-          'INSERT INTO explain_log(day,title,section,term,context,answer,model) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-          [day, title, head, term, para, answer, MODEL]
+          'INSERT INTO explain_log(url,day,title,section,term,context,answer,model) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+          [url, day, title, head, term, para, answer, MODEL]
         );
         id = ins.rows[0].id;
       } catch (e) {
@@ -181,7 +185,7 @@ router.get('/api/_admin/log', async (req, res) => {
        FROM explain_log`
     );
     const rows = await pool.query(
-      `SELECT id, created_at, day, title, term, section,
+      `SELECT id, created_at, url, day, title, term, section,
               context, answer, model, feedback
        FROM explain_log ORDER BY id DESC LIMIT $1`,
       [limit]
