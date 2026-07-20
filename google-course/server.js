@@ -168,9 +168,9 @@ router.post('/api/feedback', async (req, res) => {
 
 // 唯讀統計（token 保護）：內網 DB 無法對外連線，用這支讀回資料
 router.get('/api/_admin/log', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
   const tok = process.env.ADMIN_TOKEN;
   if (!tok || req.query.token !== tok) return res.status(404).send('Not found');
+  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
   try {
     const total = await pool.query(
@@ -189,6 +189,22 @@ router.get('/api/_admin/log', async (req, res) => {
     return res.json({ stats: total.rows[0], rows: rows.rows });
   } catch (e) {
     return res.status(500).json({ error: e.message });
+  }
+});
+
+// 清空紀錄（token 保護，且需帶確認字串）：供測試後歸零或日後重來
+router.post('/api/_admin/reset', async (req, res) => {
+  const tok = process.env.ADMIN_TOKEN;
+  if (!tok || (req.body && req.body.token) !== tok) return res.status(404).send('Not found');
+  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
+  if (!req.body || req.body.confirm !== 'DELETE-ALL') {
+    return res.status(400).json({ error: '需帶 confirm:"DELETE-ALL"' });
+  }
+  try {
+    await pool.query('TRUNCATE explain_log RESTART IDENTITY');
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
