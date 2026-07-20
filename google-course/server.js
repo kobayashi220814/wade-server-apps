@@ -157,11 +157,38 @@ router.post('/api/feedback', async (req, res) => {
     return res.status(400).json({ error: '參數錯誤' });
   }
   try {
-    await pool.query('UPDATE explain_log SET feedback=$1 WHERE id=$2', [value, String(id)]);
+    const upd = await pool.query('UPDATE explain_log SET feedback=$1 WHERE id=$2', [value, String(id)]);
+    if (upd.rowCount === 0) return res.status(404).json({ ok: false, error: '找不到該筆紀錄' });
     return res.json({ ok: true });
   } catch (e) {
     console.error('[pg] feedback 失敗:', e.message);
     return res.status(500).json({ ok: false });
+  }
+});
+
+// 唯讀統計（token 保護）：內網 DB 無法對外連線，用這支讀回資料
+router.get('/api/_admin/log', async (req, res) => {
+  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
+  const tok = process.env.ADMIN_TOKEN;
+  if (!tok || req.query.token !== tok) return res.status(404).send('Not found');
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+  try {
+    const total = await pool.query(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE feedback='up')::int AS up,
+              count(*) FILTER (WHERE feedback='down')::int AS down,
+              count(*) FILTER (WHERE feedback IS NULL)::int AS none
+       FROM explain_log`
+    );
+    const rows = await pool.query(
+      `SELECT id, created_at, day, term, section,
+              length(context) AS ctx_len, length(answer) AS ans_len, feedback
+       FROM explain_log ORDER BY id DESC LIMIT $1`,
+      [limit]
+    );
+    return res.json({ stats: total.rows[0], rows: rows.rows });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
