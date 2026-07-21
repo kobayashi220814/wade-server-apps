@@ -257,6 +257,44 @@ router.get('/api/_admin/reports', async (req, res) => {
   }
 });
 
+// 一次看兩張表（token 保護）：只要記這一支
+router.get('/api/_admin/all', async (req, res) => {
+  const tok = process.env.ADMIN_TOKEN;
+  if (!tok || req.query.token !== tok) return res.status(404).send('Not found');
+  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+  try {
+    const exStats = await pool.query(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE feedback='up')::int AS up,
+              count(*) FILTER (WHERE feedback='down')::int AS down,
+              count(*) FILTER (WHERE feedback IS NULL)::int AS none
+       FROM explain_log`
+    );
+    const exRows = await pool.query(
+      `SELECT id,
+              to_char(created_at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+              url, day, title, term, section, context, answer, model, feedback
+       FROM explain_log ORDER BY id DESC LIMIT $1`,
+      [limit]
+    );
+    const rpStats = await pool.query('SELECT count(*)::int AS n FROM translation_report');
+    const rpRows = await pool.query(
+      `SELECT id,
+              to_char(created_at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+              url, day, title, term, section, context
+       FROM translation_report ORDER BY id DESC LIMIT $1`,
+      [limit]
+    );
+    return res.json({
+      explain: { stats: exStats.rows[0], rows: exRows.rows },
+      reports: { stats: rpStats.rows[0], rows: rpRows.rows },
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // 清空紀錄（token 保護，且需帶確認字串）：供測試後歸零或日後重來
 router.post('/api/_admin/reset', async (req, res) => {
   const tok = process.env.ADMIN_TOKEN;
