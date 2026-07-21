@@ -40,7 +40,19 @@ if (process.env.DATABASE_URL) {
         )`);
       // 舊表補欄位（新表已含，這行對舊表才有作用）
       await pool.query('ALTER TABLE explain_log ADD COLUMN IF NOT EXISTS url TEXT');
-      console.log('[pg] explain_log 就緒');
+      // 翻譯問題回報（反白按倒讚）
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS translation_report (
+          id BIGSERIAL PRIMARY KEY,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          url TEXT,
+          day TEXT,
+          title TEXT,
+          section TEXT,
+          term TEXT,
+          context TEXT
+        )`);
+      console.log('[pg] explain_log / translation_report 就緒');
     } catch (e) {
       console.error('[pg] 建表失敗，將以無資料庫模式運作:', e.message);
     }
@@ -170,6 +182,32 @@ router.post('/api/feedback', async (req, res) => {
   }
 });
 
+// 翻譯問題回報：讀者反白後按倒讚，記下這段可能有問題的翻譯（不呼叫 AI）
+router.post('/api/report', async (req, res) => {
+  const ip = req.ip || 'unknown';
+  if (rateLimited(ip)) return res.status(429).json({ ok: false, error: '太頻繁，請稍後再試' });
+  const b = req.body || {};
+  const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
+  const term = clip(b.term, 400).trim();
+  if (!term) return res.status(400).json({ ok: false, error: '缺少回報的文字' });
+  const url = clip(b.url, 500) || null;
+  const title = clip(b.title, 200);
+  const head = clip(b.head, 200);
+  const para = clip(b.para, 4000);
+  if (!pool) return res.json({ ok: false });
+  try {
+    const day = (title.match(/Day\s*([1-5])/) || [])[1] || null;
+    const ins = await pool.query(
+      'INSERT INTO translation_report(url,day,title,section,term,context) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
+      [url, day, title, head, term, para]
+    );
+    return res.json({ ok: true, id: ins.rows[0].id });
+  } catch (e) {
+    console.error('[pg] report insert 失敗:', e.message);
+    return res.status(500).json({ ok: false });
+  }
+});
+
 // 唯讀統計（token 保護）：內網 DB 無法對外連線，用這支讀回資料
 router.get('/api/_admin/log', async (req, res) => {
   const tok = process.env.ADMIN_TOKEN;
@@ -198,6 +236,27 @@ router.get('/api/_admin/log', async (req, res) => {
   }
 });
 
+// 翻譯問題回報清單（token 保護）
+router.get('/api/_admin/reports', async (req, res) => {
+  const tok = process.env.ADMIN_TOKEN;
+  if (!tok || req.query.token !== tok) return res.status(404).send('Not found');
+  if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+  try {
+    const total = await pool.query('SELECT count(*)::int AS n FROM translation_report');
+    const rows = await pool.query(
+      `SELECT id,
+              to_char(created_at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+              url, day, title, term, section, context
+       FROM translation_report ORDER BY id DESC LIMIT $1`,
+      [limit]
+    );
+    return res.json({ stats: total.rows[0], rows: rows.rows });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // 清空紀錄（token 保護，且需帶確認字串）：供測試後歸零或日後重來
 router.post('/api/_admin/reset', async (req, res) => {
   const tok = process.env.ADMIN_TOKEN;
@@ -207,7 +266,7 @@ router.post('/api/_admin/reset', async (req, res) => {
     return res.status(400).json({ error: '需帶 confirm:"DELETE-ALL"' });
   }
   try {
-    await pool.query('TRUNCATE explain_log RESTART IDENTITY');
+    await pool.query('TRUNCATE explain_log, translation_report RESTART IDENTITY');
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
@@ -220,8 +279,9 @@ router.post('/api/_admin/purge_tests', async (req, res) => {
   if (!tok || (req.body && req.body.token) !== tok) return res.status(404).send('Not found');
   if (!pool) return res.status(503).json({ error: '未啟用資料庫' });
   try {
-    const r = await pool.query("DELETE FROM explain_log WHERE term LIKE 'ZZTEST%'");
-    return res.json({ ok: true, deleted: r.rowCount });
+    const r1 = await pool.query("DELETE FROM explain_log WHERE term LIKE 'ZZTEST%'");
+    const r2 = await pool.query("DELETE FROM translation_report WHERE term LIKE 'ZZTEST%'");
+    return res.json({ ok: true, deleted: r1.rowCount + r2.rowCount });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }

@@ -539,6 +539,11 @@ clusters = KMeans(n_clusters=8).fit(vectors)
  box-shadow:0 2px 10px rgba(0,0,0,.28);display:none;align-items:center;justify-content:center;
  padding:0;line-height:1;transition:transform .12s}
 #ex-btn:hover{transform:scale(1.12)}
+#rt-btn{position:fixed;z-index:9999;width:30px;height:30px;border-radius:50%;
+ background:#fff;color:#8a8a90;border:1px solid #d9d9d6;cursor:pointer;
+ box-shadow:0 2px 10px rgba(0,0,0,.22);display:none;align-items:center;justify-content:center;
+ padding:0;line-height:1;transition:transform .12s,color .12s,border-color .12s}
+#rt-btn:hover{transform:scale(1.12);color:#d93025;border-color:#f0b4ae}
 #ex-card{position:fixed;z-index:10000;width:min(400px,calc(100vw - 32px));max-height:min(70vh,560px);
  overflow:auto;background:#fff;border:1px solid #e4e4e2;border-radius:12px;
  box-shadow:0 10px 40px rgba(0,0,0,.18);padding:18px 20px;display:none;
@@ -567,7 +572,7 @@ clusters = KMeans(n_clusters=8).fit(vectors)
  border-top-color:#1a73e8;border-radius:50%;animation:exspin .7s linear infinite;
  vertical-align:-2px;margin-right:7px}
 @keyframes exspin{to{transform:rotate(360deg)}}
-@media print{#ex-btn,#ex-card{display:none!important}}
+@media print{#ex-btn,#rt-btn,#ex-card{display:none!important}}
 </style>
 <script id="explain-js">
 (function(){
@@ -576,6 +581,11 @@ clusters = KMeans(n_clusters=8).fit(vectors)
   btn.id='ex-btn'; btn.type='button'; btn.textContent='?';
   btn.title='解釋這段（會帶上下文詢問 AI）';
   document.body.appendChild(btn);
+  var rbtn=document.createElement('button');
+  rbtn.id='rt-btn'; rbtn.type='button';
+  rbtn.title='回報這段翻譯可能有問題';
+  rbtn.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:rotate(180deg)"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
+  document.body.appendChild(rbtn);
   var card=document.createElement('div');
   card.id='ex-card'; document.body.appendChild(card);
   var cur=null;
@@ -604,7 +614,7 @@ clusters = KMeans(n_clusters=8).fit(vectors)
     return s.replace(/[—–―]/g,'，').replace(/，\s*，+/g,'，')
             .replace(/([，。：；、！？])\s*，/g,'$1').trim();
   }
-  function hideBtn(){ btn.style.display='none'; }
+  function hideBtn(){ btn.style.display='none'; rbtn.style.display='none'; }
   function hideCard(){ card.style.display='none'; stopTracking(); }
 
   /* 卡片上緣對齊反白文字上緣；捲出畫面則貼齊上／下邊界 */
@@ -632,13 +642,16 @@ clusters = KMeans(n_clusters=8).fit(vectors)
   function positionBtn(){
     if(btn.style.display==='none'||!cur||!cur.range) return;
     var r=cur.range.getBoundingClientRect();
-    if(r.bottom<0||r.top>window.innerHeight){ btn.style.display='none'; return; }
+    if(r.bottom<0||r.top>window.innerHeight){ hideBtn(); return; }
     var top=r.top-38;
     if(top<8) top=r.bottom+10;
     if(top>window.innerHeight-46) top=window.innerHeight-46;
     if(top<8) top=8;
-    btn.style.left=Math.min(r.right+6,window.innerWidth-40)+'px';
+    var bl=Math.min(r.right+6,window.innerWidth-72);
+    btn.style.left=bl+'px';
     btn.style.top=top+'px';
+    rbtn.style.left=(bl+34)+'px';
+    rbtn.style.top=top+'px';
   }
   var ticking=false;
   function onViewport(){
@@ -670,7 +683,7 @@ clusters = KMeans(n_clusters=8).fit(vectors)
   }
 
   document.addEventListener('mouseup', function(e){
-    if(card.contains(e.target)||e.target===btn) return;
+    if(card.contains(e.target)||btn.contains(e.target)||rbtn.contains(e.target)) return;
     setTimeout(function(){
       var sel=window.getSelection();
       var txt=sel? sel.toString().trim() : '';
@@ -682,12 +695,13 @@ clusters = KMeans(n_clusters=8).fit(vectors)
       if(!rect.width && !rect.height){ hideBtn(); return; }
       cur={term:txt, ctx:ctxOf(r), range:r.cloneRange()};
       btn.style.display='flex';
+      rbtn.style.display='flex';
       positionBtn();
     },10);
   });
 
   document.addEventListener('mousedown', function(e){
-    if(!card.contains(e.target) && e.target!==btn) hideCard();
+    if(!card.contains(e.target) && !btn.contains(e.target) && !rbtn.contains(e.target)) hideCard();
   });
   document.addEventListener('keydown', function(e){
     if(e.key==='Escape'){ hideCard(); hideBtn(); }
@@ -770,6 +784,15 @@ clusters = KMeans(n_clusters=8).fit(vectors)
   }
 
   btn.onclick=function(){ hideBtn(); run(); };
+  rbtn.onclick=function(){
+    if(!cur) return;
+    var c=cur.ctx, term=cur.term;
+    hideBtn();
+    shell('<div class="ex-body">已回報這段翻譯可能有問題，感謝你的回饋。</div>', term);
+    try{ fetch('/google-course/api/report',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:location.href,title:c.title,head:c.head,para:c.para,term:term})}); }catch(e){}
+  };
 })();
 </script>
 </body></html>
